@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bayesian Housing Price Studio</title>
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+  /* Map + layout */
+  #mini-map { height: 220px; width: 100%; }
+  .probability-bar { transition: width 0.8s; }
+  .chart-card { min-height: 240px; }
+  .woe-badge { font-variant-numeric: tabular-nums; }
+  .history-row:hover { background: rgba(0,0,0,0.03); }
+  @media (max-width: 800px) { .chart-card { min-height: 200px; } }
+  .small-note { font-size: 12px; color: #6b7280; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+<!-- Header -->
+<header class="bg-gradient-to-r from-sky-600 to-indigo-600 text-white p-4 shadow">
+  <div class="container mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3"></path>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-2xl font-bold">Bayesian Housing Price Studio</h1>
+        <div class="text-xs opacity-90">Interactive browser app — inference, training, simulation, and exports</div>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button id="btn-export-csv" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-sm">Export Results CSV</button>
+      <button id="btn-export-pdf" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-sm">Export PDF</button>
+      <label class="flex items-center gap-2 cursor-pointer select-none ml-2">
+        <input id="dark-toggle" type="checkbox" class="hidden">
+        <span id="dark-label" class="px-3 py-1 rounded bg-white/20 text-sm">Dark</span>
+      </label>
+    </div>
+  </div>
+</header>
+
+<main class="container mx-auto p-6 space-y-6">
+
+  <!-- Top navigation / quick links -->
+  <nav class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <a href="#predictor" class="bg-white p-3 rounded shadow text-center">Predictor</a>
+    <a href="#train" class="bg-white p-3 rounded shadow text-center">Train & Data</a>
+    <a href="#simulations" class="bg-white p-3 rounded shadow text-center">Scenarios</a>
+    <a href="#research" class="bg-white p-3 rounded shadow text-center">Advanced</a>
+  </nav>
+
+  <!-- Predictor: inputs, inference, charts, map, explainability, history -->
+  <section id="predictor" class="bg-white rounded-lg shadow p-6">
+    <div class="flex items-start justify-between">
+      <div>
+        <h2 class="text-xl font-semibold">Housing Price Predictor</h2>
+        <p class="text-sm text-gray-600">Enter features, choose inference method, inspect posterior, export or save runs.</p>
+      </div>
+      <div class="text-sm small-note">All operations run in your browser. No data leaves your machine.</div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+      <!-- Inputs panel -->
+      <div class="p-4 border rounded space-y-4">
+        <h3 class="font-medium">Inputs</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs">Median Income ($10k)</label>
+            <input id="med-income" type="number" step="0.1" min="0" max="50" class="mt-1 p-2 w-full border rounded" placeholder="3.5">
+          </div>
+          <div>
+            <label class="text-xs">House Age (years)</label>
+            <input id="house-age" type="number" step="1" min="0" max="200" class="mt-1 p-2 w-full border rounded" placeholder="25">
+          </div>
+          <div>
+            <label class="text-xs">Average Rooms</label>
+            <input id="avg-rooms" type="number" step="0.1" min="0" max="50" class="mt-1 p-2 w-full border rounded" placeholder="5.5">
+          </div>
+          <div>
+            <label class="text-xs">Average Bedrooms</label>
+            <input id="avg-bedrooms" type="number" step="0.1" min="0" max="20" class="mt-1 p-2 w-full border rounded" placeholder="1.1">
+          </div>
+          <div>
+            <label class="text-xs">Population</label>
+            <input id="population" type="number" step="1" min="0" max="1000000" class="mt-1 p-2 w-full border rounded" placeholder="1200">
+          </div>
+          <div>
+            <label class="text-xs">Average Occupancy</label>
+            <input id="avg-occupancy" type="number" step="0.1" min="0" max="20" class="mt-1 p-2 w-full border rounded" placeholder="2.5">
+          </div>
+          <div>
+            <label class="text-xs">Latitude</label>
+            <input id="latitude" type="number" step="0.0001" class="mt-1 p-2 w-full border rounded" placeholder="34.05">
+          </div>
+          <div>
+            <label class="text-xs">Longitude</label>
+            <input id="longitude" type="number" step="0.0001" class="mt-1 p-2 w-full border rounded" placeholder="-118.25">
+          </div>
+        </div>
+
+        <div class="flex gap-2 mt-3 items-center">
+          <select id="inference-method" class="p-2 border rounded">
+            <option value="exact">Variable Elimination (exact)</option>
+            <option value="gibbs">Gibbs Sampling (approx)</option>
+          </select>
+          <input id="gibbs-iterations" type="number" min="100" max="20000" step="100" value="2000" class="p-2 border rounded w-36" />
+          <button id="btn-run" class="ml-auto bg-blue-600 text-white px-4 py-2 rounded">Run</button>
+        </div>
+
+        <hr class="my-3">
+
+        <h4 class="font-medium">Sensitivity Sliders</h4>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs">Median Income slider</label>
+            <input id="sens-medinc" type="range" min="0" max="20" step="0.1" value="3.5" class="w-full" />
+            <div class="text-xs">Value: <span id="sens-medinc-val">3.5</span></div>
+          </div>
+          <div>
+            <label class="text-xs">Average Rooms slider</label>
+            <input id="sens-rooms" type="range" min="0" max="20" step="0.1" value="5.5" class="w-full" />
+            <div class="text-xs">Value: <span id="sens-rooms-val">5.5</span></div>
+          </div>
+          <div>
+            <label class="text-xs">Population slider</label>
+            <input id="sens-pop" type="range" min="0" max="10000" step="10" value="1200" class="w-full" />
+            <div class="text-xs">Value: <span id="sens-pop-val">1200</span></div>
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <div>
+          <label class="text-xs">Run name</label>
+          <input id="run-name" type="text" placeholder="e.g., Downtown test" class="mt-1 p-2 w-full border rounded" />
+        </div>
+        <div class="flex gap-2 mt-2">
+          <button id="btn-save-history" class="bg-green-600 text-white px-3 py-2 rounded">Save</button>
+          <button id="btn-clear-history" class="bg-red-600 text-white px-3 py-2 rounded">Clear History</button>
+        </div>
+      </div>
+
+      <!-- Charts & explainability -->
+      <div class="p-4 border rounded space-y-4">
+        <h3 class="font-medium">Posterior & Explainability</h3>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="chart-card p-3 border rounded">
+            <canvas id="barChart"></canvas>
+          </div>
+          <div class="chart-card p-3 border rounded">
+            <canvas id="pieChart"></canvas>
+          </div>
+        </div>
+
+        <div class="mt-3 bg-gradient-to-r from-blue-50 to-purple-50 p-3 rounded">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm text-gray-600">Expected Value</div>
+              <div id="expected-value" class="text-2xl font-bold text-blue-700">$0</div>
+              <div class="text-xs text-gray-500">From posterior × bin centers</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-600">Top feature influences</div>
+              <div id="woe-list" class="mt-2 space-y-1 text-sm"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <h4 class="font-medium">Inference Details</h4>
+          <div class="text-xs text-gray-600 p-2 border rounded" id="inference-details">
+            Method: <span id="inf-method-text">-</span><br/>
+            Evidence used: <span id="evidence-text">-</span><br/>
+            Posterior norm const: <span id="norm-const">-</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map & progress & history -->
+      <div class="p-4 border rounded space-y-4">
+        <h3 class="font-medium">Map & Probability Bars</h3>
+        <div id="mini-map" class="mb-3"></div>
+
+        <div>
+          <div class="mb-2 flex justify-between">
+            <span class="text-sm">Low ($0-150K)</span><span id="prob-low-text" class="text-sm font-semibold">0%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3 mb-3"><div id="prob-low-bar" class="bg-red-500 h-3 rounded-full probability-bar" style="width:0%"></div></div>
+
+          <div class="mb-2 flex justify-between">
+            <span class="text-sm">Medium ($150K-350K)</span><span id="prob-med-text" class="text-sm font-semibold">0%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3 mb-3"><div id="prob-med-bar" class="bg-yellow-500 h-3 rounded-full probability-bar" style="width:0%"></div></div>
+
+          <div class="mb-2 flex justify-between">
+            <span class="text-sm">High ($350K-500K)</span><span id="prob-high-text" class="text-sm font-semibold">0%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3 mb-3"><div id="prob-high-bar" class="bg-green-500 h-3 rounded-full probability-bar" style="width:0%"></div></div>
+
+          <div class="mb-2 flex justify-between">
+            <span class="text-sm">Luxury ($500K+)</span><span id="prob-lux-text" class="text-sm font-semibold">0%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3 mb-3"><div id="prob-lux-bar" class="bg-purple-500 h-3 rounded-full probability-bar" style="width:0%"></div></div>
+        </div>
+
+        <div>
+          <h4 class="font-medium">Saved Runs</h4>
+          <div id="history-quick" class="text-sm max-h-48 overflow-auto mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Train & Data -->
+  <section id="train" class="bg-white rounded-lg shadow p-6">
+    <div class="flex items-start justify-between">
+      <div>
+        <h2 class="text-xl font-semibold">Train & Data</h2>
+        <p class="text-sm text-gray-600">Upload CSV to learn Conditional Probability Tables (CPTs). Expected columns: MedInc, HouseAge, AveRooms, AveBedrms, Population, AveOccup, Latitude, Longitude, Price (continuous or categorical). Optionally provide 'time' for sequential data.</p>
+      </div>
+      <div class="text-sm small-note">CSV processing occurs locally. Use the California Housing CSV or similar.</div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Upload CSV</h4>
+        <input id="csv-file" type="file" accept=".csv" class="mt-2" />
+        <div class="mt-3 text-xs text-gray-600">After upload press Learn to derive CPTs. Set price bins below (comma-separated).</div>
+
+        <div class="mt-3">
+          <label class="text-xs">Price bins (e.g. 150000,350000,500000)</label>
+          <input id="price-bins" class="mt-1 p-2 w-full border rounded" placeholder="150000,350000,500000" />
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button id="btn-learn" class="bg-blue-600 text-white px-3 py-2 rounded">Learn CPTs</button>
+          <button id="btn-eval" class="bg-indigo-600 text-white px-3 py-2 rounded">Train & Eval</button>
+        </div>
+      </div>
+
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">CPT Preview</h4>
+        <div id="cpt-preview" class="text-xs text-gray-700 max-h-64 overflow-auto mt-2"></div>
+      </div>
+
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Evaluation</h4>
+        <div id="eval-output" class="text-xs text-gray-700 mt-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Simulations & Scenarios -->
+  <section id="simulations" class="bg-white rounded-lg shadow p-6">
+    <div class="flex items-start justify-between">
+      <div>
+        <h2 class="text-xl font-semibold">Scenarios & Use Cases</h2>
+        <p class="text-sm text-gray-600">Run built-in scenarios for builders, banks, or policy experiments. Use current posterior as starting point or load saved runs.</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Builders / Developers</h4>
+        <div class="text-xs text-gray-600">Estimate profitability using expected sale price and build cost.</div>
+        <div class="mt-2">
+          <label class="text-xs">Build cost ($)</label>
+          <input id="builder-cost" type="number" class="mt-1 p-2 w-full border rounded" value="200000" />
+        </div>
+        <div class="mt-2">
+          <label class="text-xs">Sale price multiplier</label>
+          <input id="builder-mult" type="number" step="0.01" class="mt-1 p-2 w-full border rounded" value="1.1" />
+        </div>
+        <button id="btn-builder-sim" class="mt-3 bg-blue-600 text-white px-3 py-2 rounded text-sm">Run</button>
+        <div id="builder-output" class="text-xs mt-2"></div>
+      </div>
+
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Banks</h4>
+        <div class="text-xs text-gray-600">Compute probability price falls below a threshold (loan-risk).</div>
+        <div class="mt-2">
+          <label class="text-xs">Threshold ($)</label>
+          <input id="bank-threshold" type="number" class="mt-1 p-2 w-full border rounded" value="180000" />
+        </div>
+        <button id="btn-bank-sim" class="mt-3 bg-indigo-600 text-white px-3 py-2 rounded text-sm">Run</button>
+        <div id="bank-output" class="text-xs mt-2"></div>
+      </div>
+
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Government / Policy</h4>
+        <div class="text-xs text-gray-600">Simulate policy shocks (e.g., income change or transit) and see posterior changes.</div>
+        <div class="mt-2">
+          <label class="text-xs">Median Income shock delta ($10k)</label>
+          <input id="policy-medinc-delta" type="number" step="0.1" class="mt-1 p-2 w-full border rounded" value="1.0" />
+        </div>
+        <button id="btn-policy-sim" class="mt-3 bg-emerald-600 text-white px-3 py-2 rounded text-sm">Apply Shock</button>
+        <div id="policy-output" class="text-xs mt-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Advanced / Research -->
+  <section id="research" class="bg-white rounded-lg shadow p-6">
+    <div class="flex items-start justify-between">
+      <div>
+        <h2 class="text-xl font-semibold">Advanced: Approximate Inference & Time Evolution</h2>
+        <p class="text-sm text-gray-600">Run Gibbs sampling for approximate inference, or learn a simple transition model for price over time and simulate forward.</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Gibbs Sampler</h4>
+        <div class="text-xs text-gray-600">Use Gibbs to sample from joint posterior when evidence is sparse or network is large.</div>
+        <div class="mt-2">
+          <label class="text-xs">Iterations</label>
+          <input id="gibbs-iter-adv" type="number" min="100" max="20000" step="100" value="5000" class="mt-1 p-2 w-full border rounded" />
+        </div>
+        <button id="btn-gibbs-run" class="mt-3 bg-purple-600 text-white px-3 py-2 rounded text-sm">Run Gibbs</button>
+        <div id="gibbs-output" class="text-xs mt-2"></div>
+      </div>
+
+      <div class="p-4 border rounded">
+        <h4 class="font-medium">Time-series / DBN</h4>
+        <div class="text-xs text-gray-600">If your CSV contains a 'time' column, we'll learn transitions between price categories and simulate future steps.</div>
+        <div class="mt-2">
+          <label class="text-xs">Simulate steps</label>
+          <input id="dbn-steps" type="number" min="1" max="120" value="12" class="mt-1 p-2 w-full border rounded" />
+        </div>
+        <button id="btn-dbn-sim" class="mt-3 bg-amber-600 text-white px-3 py-2 rounded text-sm">Simulate DBN</button>
+        <div id="dbn-output" class="text-xs mt-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-gray-800 text-white py-6 rounded-lg">
+    <div class="container mx-auto text-center text-sm">
+      Bayesian Housing Price Studio — client-side toolkit for probabilistic housing analysis.
+    </div>
+  </footer>
+</main>
+
+<!-- JavaScript: Bayesian logic, UI hookups, training, inference, exports -->
+<script>
+/* ---------------------------
+   Utilities
+   --------------------------- */
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function round2(v) { return Math.round(v * 100) / 100; }
+function nowISO() { return new Date().toISOString().slice(0,19).replace('T',' '); }
+
+/* ---------------------------
+   Default discretization & bins
+   --------------------------- */
+const defaultPriceBins = [150000, 350000, 500000]; // boundaries create 4 bins: <150k, 150-350k, 350-500k, >500k
+let priceBins = defaultPriceBins.slice();
+function categorizePrice(p) {
+  if (p === null || p === undefined || isNaN(p)) return null;
+  for (let i=0;i<priceBins.length;i++){
+    if (p < priceBins[i]) return i; // 0..len-1
+  }
+  return priceBins.length; // last bin
+}
+const priceLabels = () => {
+  const labels = [];
+  labels.push(`Low ($0-${priceBins[0].toLocaleString()})`);
+  labels.push(`Medium ($${priceBins[0].toLocaleString()}-${priceBins[1].toLocaleString()})`);
+  labels.push(`High ($${priceBins[1].toLocaleString()}-${priceBins[2].toLocaleString()})`);
+  labels.push(`Luxury ($${priceBins[2].toLocaleString()}+)`);
+  return labels;
+}
+const priceCenters = () => {
+  // representative center value for expectation calculation
+  return [
+    Math.round(priceBins[0]/2),
+    Math.round((priceBins[0]+priceBins[1])/2),
+    Math.round((priceBins[1]+priceBins[2])/2),
+    Math.round(priceBins[2] + (priceBins[2]*0.3))
+  ];
+}
+
+/* ---------------------------
+   Bayesian Network (simple Naive-Bayes style factorization)
+   - Phase 1 prototype used conditional tables: we'll support two modes:
+     1) Hand-coded CPTs (initial)
+     2) Learned CPTs from uploaded CSV
+   - For efficiency and robustness in-browser we use a Naive-Bayes factorization:
+     P(price, features) = P(price) * Π P(feature | price)
+   - Continuous features are discretized into 3 levels per-feature by thresholds learned or default.
+   --------------------------- */
+
+const featuresList = ['MedInc','HouseAge','AveRooms','AveBedrms','Population','AveOccup','Latitude','Longitude'];
+
+// Default discretization thresholds (3 bins: low, medium, high)
+let thresholds = {
+  MedInc: [2.0, 4.0],
+  HouseAge: [15, 35],
+  AveRooms: [4.0, 6.0],
+  AveBedrms: [0.8, 1.2],
+  Population: [1000, 2500],
+  AveOccup: [2.0, 3.0],
+  Latitude: [34.0, 36.0],
+  Longitude: [-120.0, -118.0]
+};
+
+// Default hand-coded CPTs (feature given price → probabilities for discretized bins [low, med, high])
+// These are reasonable priors used before learning from data
+let cpts = {
+  Price: [0.25, 0.40, 0.25, 0.10], // prior distribution across 4 price bins
+  MedInc: {
+    0: [0.6,0.3,0.1], 1: [0.3,0.4,0.3], 2: [0.1,0.4,0.5], 3: [0.05,0.3,0.65]
+  },
+  HouseAge: {
+    0: [0.7,0.2,0.1], 1: [0.4,0.4,0.2], 2: [0.2,0.5,0.3], 3: [0.1,0.4,0.5]
+  },
+  AveRooms: {
+    0: [0.8,0.15,0.05], 1: [0.5,0.35,0.15], 2: [0.2,0.5,0.3], 3: [0.1,0.3,0.6]
+  },
+  AveBedrms: {
+    0: [0.7,0.2,0.1], 1: [0.4,0.4,0.2], 2: [0.2,0.5,0.3], 3: [0.1,0.3,0.6]
+  },
+  Population: {
+    0: [0.2,0.3,0.5], 1: [0.3,0.4,0.3], 2: [0.4,0.4,0.2], 3: [0.5,0.3,0.2]
+  },
+  AveOccup: {
+    0: [0.6,0.3,0.1], 1: [0.4,0.4,0.2], 2: [0.2,0.5,0.3], 3: [0.1,0.4,0.5]
+  },
+  Latitude: {
+    0: [0.4,0.3,0.3], 1: [0.3,0.4,0.3], 2: [0.2,0.4,0.4], 3: [0.1,0.3,0.6]
+  },
+  Longitude: {
+    0: [0.3,0.4,0.3], 1: [0.4,0.3,0.3], 2: [0.5,0.3,0.2], 3: [0.6,0.3,0.1]
+  }
+};
+
+// Helper: discretize continuous feature into 0/1/2 (low/med/high) using thresholds[feature]
+function discretizeFeature(feature, value) {
+  if (value === null || value === undefined || value === '') return null;
+  const t = thresholds[feature];
+  if (!t) return null;
+  if (value < t[0]) return 0;
+  if (value < t[1]) return 1;
+  return 2;
+}
+
+// Multiply probability factors: price prior * Π P(featureDiscretized|priceBin)
+// evidence: object { MedInc: rawValue or null, ... }
+// returns posterior array length 4 (normalized)
+function inferExact(evidence) {
+  // posterior proportional to prior * product over features of likelihood
+  let post = cpts.Price.slice(); // make a copy
+  for (const f of featuresList) {
+    const raw = evidence[f];
+    const disc = raw === null || raw === undefined ? null : discretizeFeature(f, raw);
+    if (disc === null) continue; // missing evidence → skip
+    // For each price bin (0..3) multiply by P(feature=disc | priceBin)
+    for (let pb = 0; pb < 4; pb++) {
+      const probArr = cpts[f][pb]; // [p(low|price), p(med|price), p(high|price)]
+      // if probArr missing (shouldn't), use uniform
+      const like = (probArr && probArr[disc] !== undefined) ? probArr[disc] : (1/3);
+      post[pb] *= like;
+    }
+  }
+  const s = post.reduce((a,b)=>a+b,0) || 1.0;
+  return post.map(x => x / s);
+}
+
+/* ---------------------------
+   Gibbs sampling (approximate)
+   - We implement a simple Gibbs sampler assuming Naive-Bayes factorization:
+     - Sample price given current feature discretizations (actually easier: sample price conditioned on observed features)
+     - If features are missing and should be sampled, we could sample features given price too; this basic implementation samples price repeatedly given evidence (works when features are observed or partially observed).
+   --------------------------- */
+function gibbsSample(evidence, iterations = 2000) {
+  // evidence: raw continuous values or null. We'll sample price category each iteration from P(price | evidence)
+  const samples = [];
+  for (let it=0; it<iterations; it++) {
+    const posterior = inferExact(evidence); // can be reused; since evidence fixed this yields same distribution each iter
+    // But to emulate Gibbs: sample categorical according to posterior
+    const r = Math.random();
+    let acc=0, chosen=0;
+    for (let i=0;i<posterior.length;i++){
+      acc += posterior[i];
+      if (r <= acc) { chosen = i; break; }
+    }
+    samples.push(chosen);
+  }
+  // compute empirical probabilities
+  const counts = [0,0,0,0];
+  for (const s of samples) counts[s]++;
+  return counts.map(c => c / samples.length);
+}
+
+/* ---------------------------
+   Explainability: weight of evidence (log-odds change)
+   - Compute change in log-odds for each feature when set to observed value vs missing.
+   --------------------------- */
+function computeFeatureInfluence(evidence) {
+  const basePost = inferExact(evidence); // with evidence
+  const baseOdds = basePost.map(p => (p===0?1e-12:p)/(1 - p + 1e-12));
+  const influences = [];
+  for (const f of featuresList) {
+    const val = evidence[f];
+    if (val === null || val === undefined) {
+      influences.push({feature:f, score:0, note:'missing'});
+      continue;
+    }
+    // Posterior with this feature removed
+    const evidenceReduced = {...evidence}; delete evidenceReduced[f];
+    const postReduced = inferExact(evidenceReduced);
+    // Measure change in entropy or log-odds sum absolute difference across price bins
+    let score = 0;
+    for (let i=0;i<4;i++){
+      const p1 = basePost[i] + 1e-12;
+      const p2 = postReduced[i] + 1e-12;
+      score += Math.abs(Math.log(p1/p2));
+    }
+    influences.push({feature:f, score, note: `disc=${discretizeFeature(f, val)}`});
+  }
+  // sort by score descending
+  influences.sort((a,b)=>b.score - a.score);
+  return influences;
+}
+
+/* ---------------------------
+   Learning CPTs from CSV data
+   - Discretize continuous features into 3 bins per-feature (low/med/high) using quantiles or default thresholds.
+   - Discretize Price into bins using priceBins and build CPT frequency tables:
+       P(price) and P(featureDisc | price) for each feature
+   - Apply Laplace smoothing
+   --------------------------- */
+let learned = {available:false};
+function learnCPTsFromData(rows) {
+  // rows: array of objects with keys matching featuresList plus 'Price' (numeric), optional 'time'
+  // 1) Infer thresholds from data: per-feature quantiles for 33% and 66%
+  for (const f of featuresList) {
+    const vals = rows.map(r => parseFloat(r[f])).filter(v => !isNaN(v));
+    if (vals.length < 3) continue;
+    vals.sort((a,b)=>a-b);
+    const q1 = vals[Math.floor(vals.length/3)];
+    const q2 = vals[Math.floor((2*vals.length)/3)];
+    thresholds[f] = [q1, q2];
+  }
+  // 2) Price bins from global priceBins variable (user can set)
+  // 3) Build counts: countsPrice[priceBin], countsFeature[feature][priceBin][disc] with Laplace smoothing
+  const k = 1; // laplace
+  const countsPrice = new Array(priceBins.length + 1).fill(k);
+  const countsFeature = {};
+  for (const f of featuresList) {
+    countsFeature[f] = [];
+    for (let pb=0; pb<priceBins.length+1; pb++){
+      countsFeature[f][pb] = [k,k,k]; // 3 discretized levels
+    }
+  }
+  let totalRows = 0;
+  for (const r of rows) {
+    const p = parseFloat(r.Price);
+    if (isNaN(p)) continue;
+    const pb = categorizePrice(p);
+    countsPrice[pb] += 1;
+    for (const f of featuresList) {
+      const fv = parseFloat(r[f]);
+      if (isNaN(fv)) continue;
+      const disc = discretizeFeature(f, fv);
+      if (disc === null) continue;
+      countsFeature[f][pb][disc] += 1;
+    }
+    totalRows++;
+  }
+  // Convert to probabilities
+  const learnedPrice = countsPrice.map(c => c / countsPrice.reduce((a,b)=>a+b,0));
+  const learnedCPTs = { Price: learnedPrice };
+  for (const f of featuresList) {
+    learnedCPTs[f] = {};
+    for (let pb=0; pb<countsFeature[f].length; pb++){
+      const arr = countsFeature[f][pb];
+      const s = arr.reduce((a,b)=>a+b,0);
+      learnedCPTs[f][pb] = arr.map(x => x/s);
+    }
+  }
+  // Store learned into global cpts to be used by inferExact
+  cpts = learnedCPTs;
+  learned = {available:true, rowsCount: totalRows};
+  return learnedCPTs;
+}
+
+/* ---------------------------
+   Basic evaluation: train/test split and compare to a linear regression baseline
+   - We discretize price to bins and compute classification accuracy of Naive-Bayes (MAP) vs OLS(continuous) bucket mapping.
+   --------------------------- */
+function evaluateModel(rows) {
+  // split
+  const shuffled = rows.slice().sort(()=>Math.random()-0.5);
+  const split = Math.max(10, Math.floor(shuffled.length * 0.8));
+  const train = shuffled.slice(0, split);
+  const test = shuffled.slice(split);
+  // learn CPTs on train
+  learnCPTsFromData(train);
+  // NB predictions on test
+  let correctNB = 0;
+  for (const r of test) {
+    const evidence = {};
+    for (const f of featuresList) {
+      const v = parseFloat(r[f]);
+      evidence[f] = isNaN(v) ? null : v;
+    }
+    const post = inferExact(evidence);
+    const pred = post.indexOf(Math.max(...post)); // MAP
+    const truePb = categorizePrice(parseFloat(r.Price));
+    if (pred === truePb) correctNB++;
+  }
+  const accNB = correctNB / test.length;
+
+  // Baseline: OLS regression on continuous price using features (simple linear regression)
+  // Build X and y from train
+  const X = [];
+  const y = [];
+  for (const r of train) {
+    const row = [1]; // intercept
+    for (const f of featuresList) {
+      const v = parseFloat(r[f]); row.push(isNaN(v)?0:v);
+    }
+    X.push(row);
+    y.push(parseFloat(r.Price));
+  }
+  // Solve beta = (X'X)^-1 X'y using numeric method (normal equations)
+  function transpose(A) { return A[0].map((_,i)=>A.map(r=>r[i])); }
+  function matMul(A,B) {
+    const m=A.length,n=B[0].length,p=B.length;
+    const C=Array.from({length:m},()=>Array(n).fill(0));
+    for(let i=0;i<m;i++) for(let k=0;k<p;k++) for(let j=0;j<n;j++) C[i][j]+=A[i][k]*B[k][j];
+    return C;
+  }
+  function inverse2d(A) {
+    // naive Gauss-Jordan; A must be square
+    const n = A.length;
+    const M = A.map((r,i)=>r.concat(Array.from({length:n},(_,j)=> i===j?1:0)));
+    for (let i=0;i<n;i++){
+      // pivot
+      let pivot = i;
+      for (let r=i;r<n;r++) if (Math.abs(M[r][i]) > Math.abs(M[pivot][i])) pivot=r;
+      if (Math.abs(M[pivot][i]) < 1e-12) return null;
+      if (pivot !== i) { const tmp=M[i]; M[i]=M[pivot]; M[pivot]=tmp; }
+      const div = M[i][i];
+      for (let j=0;j<2*n;j++) M[i][j] /= div;
+      for (let r=0;r<n;r++) if (r!==i){
+        const mul = M[r][i];
+        for (let j=0;j<2*n;j++) M[r][j] -= mul * M[i][j];
+      }
+    }
+    return M.map(r=>r.slice(n));
+  }
+  const Xt = transpose(X);
+  const XtX = matMul(Xt,X);
+  const inv = inverse2d(XtX);
+  let beta = null;
+  if (inv) {
+    const Xty = matMul(Xt, y.map(v=>[v]));
+    const betaMat = matMul(inv, Xty); // column vector
+    beta = betaMat.map(r=>r[0]);
+  }
+  // Evaluate on test: predict price and map to bin
+  let correctLR = 0;
+  if (beta) {
+    for (const r of test) {
+      const row = [1];
+      for (const f of featuresList) {
+        const v = parseFloat(r[f]); row.push(isNaN(v)?0:v);
+      }
+      let predPrice = 0;
+      for (let i=0;i<row.length;i++) predPrice += row[i] * beta[i];
+      const predBin = categorizePrice(predPrice);
+      const truePb = categorizePrice(parseFloat(r.Price));
+      if (predBin === truePb) correctLR++;
+    }
+  }
+  const accLR = beta ? (correctLR / test.length) : null;
+
+  return {
+    accNB, accLR, testSize: test.length, trainSize: train.length, betaAvailable: !!beta
+  };
+}
+
+/* ---------------------------
+   DBN: simple price transition learning from 'time' column
+   - Build transition matrix T[i][j] = P(nextPriceBin=j | currentPriceBin=i)
+   - Simulate forward from a starting posterior distribution
+   --------------------------- */
+let dbnTransition = null;
+function learnDBNTransitions(rows) {
+  // Expect rows with 'time' (string), and Price present. We'll sort by time per-location if location present or globally by time.
+  // For simplicity, we assume rows are ordered by time globally.
+  const transitions = Array.from({length:4}, ()=>Array(4).fill(1)); // laplace smoothing
+  // Build mapping of time -> aggregated price bins
+  // If rows have 'id' or lat/lon we could do per-entity; we'll do global time sorted.
+  const withTime = rows.filter(r => r.time !== undefined && r.time !== null && r.time !== '');
+  if (withTime.length < 2) return null;
+  // Sort by time
+  withTime.sort((a,b)=> new Date(a.time) - new Date(b.time));
+  // iterate adjacent rows and count transitions (note: this is simplistic)
+  for (let i=0;i<withTime.length-1;i++) {
+    const pb1 = categorizePrice(parseFloat(withTime[i].Price));
+    const pb2 = categorizePrice(parseFloat(withTime[i+1].Price));
+    if (pb1==null || pb2==null) continue;
+    transitions[pb1][pb2] += 1;
+  }
+  // normalize rows
+  const T = transitions.map(row => {
+    const s = row.reduce((a,b)=>a+b,0);
+    return row.map(v=>v/s);
+  });
+  dbnTransition = T;
+  return T;
+}
+function simulateDBN(initialPosterior, steps=12) {
+  // initialPosterior: array length 4
+  if (!dbnTransition) return null;
+  let cur = initialPosterior.slice();
+  const path = [cur.slice()];
+  for (let s=0;s<steps;s++) {
+    // multiply vector by transition matrix
+    const next = [0,0,0,0];
+    for (let j=0;j<4;j++){
+      for (let i=0;i<4;i++){
+        next[j] += cur[i] * dbnTransition[i][j];
+      }
+    }
+    cur = next;
+    path.push(cur.slice());
+  }
+  return path;
+}
+
+/* ---------------------------
+   UI: Chart.js setup
+   --------------------------- */
+let barChart=null, pieChart=null;
+function initCharts() {
+  const barCtx = document.getElementById('barChart').getContext('2d');
+  const pieCtx = document.getElementById('pieChart').getContext('2d');
+  const labels = priceLabels();
+  if (barChart) barChart.destroy();
+  if (pieChart) pieChart.destroy();
+  barChart = new Chart(barCtx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label:'Probability %', data:[0,0,0,0] }] },
+    options: { responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, max:100}} }
+  });
+  pieChart = new Chart(pieCtx, {
+    type: 'pie',
+    data: { labels, datasets: [{ data:[0,0,0,0] }] },
+    options: { responsive:true }
+  });
+}
+initCharts();
+
+/* ---------------------------
+   Map: Leaflet init
+   --------------------------- */
+let map = null, marker = null;
+function initMap() {
+  map = L.map('mini-map', { zoomControl:true, attributionControl:false }).setView([34.05, -118.25], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  marker = L.marker([34.05,-118.25]).addTo(map);
+}
+initMap();
+
+/* ---------------------------
+   UI helpers: read inputs, update outputs
+   --------------------------- */
+function readInputs() {
+  const getVal = id => {
+    const v = document.getElementById(id).value;
+    if (v === '') return null;
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  };
+  const features = {
+    MedInc: getVal('med-income'),
+    HouseAge: getVal('house-age'),
+    AveRooms: getVal('avg-rooms'),
+    AveBedrms: getVal('avg-bedrooms'),
+    Population: getVal('population'),
+    AveOccup: getVal('avg-occupancy'),
+    Latitude: getVal('latitude'),
+    Longitude: getVal('longitude')
+  };
+  return features;
+}
+
+function updateUIWithPosterior(post, evidence, methodText, normConst=null) {
+  // post: array length 4 probabilities
+  const labels = priceLabels();
+  const percentages = post.map(p => (p*100));
+  // update charts
+  barChart.data.labels = labels;
+  barChart.data.datasets[0].data = percentages;
+  barChart.update();
+
+  pieChart.data.labels = labels;
+  pieChart.data.datasets[0].data = post;
+  pieChart.update();
+
+  // expected value
+  const centers = priceCenters();
+  let expected = 0;
+  for (let i=0;i<post.length;i++) expected += post[i] * centers[i];
+  document.getElementById('expected-value').textContent = `$${Math.round(expected).toLocaleString()}`;
+
+  // progress bars
+  const ids = [
+    ['prob-low-text','prob-low-bar'],
+    ['prob-med-text','prob-med-bar'],
+    ['prob-high-text','prob-high-bar'],
+    ['prob-lux-text','prob-lux-bar']
+  ];
+  for (let i=0;i<4;i++){
+    document.getElementById(ids[i][0]).textContent = `${(post[i]*100).toFixed(1)}%`;
+    document.getElementById(ids[i][1]).style.width = `${post[i]*100}%`;
+  }
+
+  // inference details & evidence
+  document.getElementById('inf-method-text').textContent = methodText;
+  const evParts = [];
+  for (const f of featuresList) {
+    const v = evidence[f];
+    if (v !== null && v !== undefined) evParts.push(`${f}: ${v}`);
+  }
+  document.getElementById('evidence-text').textContent = evParts.length ? evParts.join(', ') : 'No evidence (using prior)';
+  document.getElementById('norm-const').textContent = normConst ? round2(normConst) : '-';
+
+  // explainability
+  const inf = computeFeatureInfluence(evidence);
+  const woeDiv = document.getElementById('woe-list');
+  woeDiv.innerHTML = '';
+  for (let i=0;i<Math.min(5,inf.length);i++){
+    const it = inf[i];
+    const el = document.createElement('div');
+    el.innerHTML = `<span class="font-semibold">${it.feature}</span> <span class="woe-badge text-xs text-gray-600">(${round2(it.score)})</span> <span class="text-xs text-gray-500"> ${it.note}</span>`;
+    woeDiv.appendChild(el);
+  }
+}
+
+/* ---------------------------
+   Run analysis: wired to Run button
+   --------------------------- */
+document.getElementById('btn-run').addEventListener('click', () => {
+  const evidence = readInputs();
+  // update map
+  if (evidence.Latitude !== null && evidence.Longitude !== null) {
+    map.setView([evidence.Latitude, evidence.Longitude], 10);
+    marker.setLatLng([evidence.Latitude, evidence.Longitude]);
+  }
+  const method = document.getElementById('inference-method').value;
+  if (method === 'exact') {
+    const post = inferExact(evidence);
+    updateUIWithPosterior(post, evidence, 'Variable Elimination (exact)');
+  } else {
+    const iters = parseInt(document.getElementById('gibbs-iterations').value) || 2000;
+    // Gibbs sampling wrapper
+    const post = gibbsSample(evidence, iters);
+    updateUIWithPosterior(post, evidence, `Gibbs Sampling (${iters} iter)`);
+  }
+});
+
+/* ---------------------------
+   Sensitivity slider bindings
+   --------------------------- */
+document.getElementById('sens-medinc').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  document.getElementById('sens-medinc-val').textContent = v;
+  document.getElementById('med-income').value = v;
+});
+document.getElementById('sens-rooms').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  document.getElementById('sens-rooms-val').textContent = v;
+  document.getElementById('avg-rooms').value = v;
+});
+document.getElementById('sens-pop').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  document.getElementById('sens-pop-val').textContent = v;
+  document.getElementById('population').value = v;
+});
+
+/* ---------------------------
+   History: localStorage save/restore
+   --------------------------- */
+function loadHistory() {
+  const raw = localStorage.getItem('bhp_history');
+  return raw ? JSON.parse(raw) : [];
+}
+function saveHistory(arr) {
+  localStorage.setItem('bhp_history', JSON.stringify(arr));
+}
+function renderHistoryQuick() {
+  const hist = loadHistory();
+  const container = document.getElementById('history-quick');
+  container.innerHTML = '';
+  if (hist.length === 0) { container.innerHTML = '<div class="text-xs text-gray-500">No saved runs</div>'; return; }
+  hist.slice().reverse().forEach((h, idx) => {
+    const div = document.createElement('div');
+    div.className = 'p-2 border-b history-row';
+    div.innerHTML = `<div class="flex justify-between"><div><strong>${h.name || 'Run'}</strong> <span class="text-xs text-gray-500">(${h.time})</span></div>
+                     <div><button class="text-blue-600 text-xs mr-2" data-load="${idx}">Load</button><button class="text-red-600 text-xs" data-del="${idx}">Del</button></div></div>
+                     <div class="text-xs text-gray-600">Expected: $${(h.expected||0).toLocaleString()} • ${h.method}</div>`;
+    container.appendChild(div);
+  });
+  // wire load/del buttons
+  container.querySelectorAll('[data-load]').forEach(btn=>{
+    btn.addEventListener('click', (ev)=>{
+      const index = parseInt(ev.target.getAttribute('data-load'));
+      const arr = loadHistory();
+      const item = arr[arr.length - 1 - index];
+      if (!item) return;
+      // load features
+      for (const f of featuresList) {
+        if (item.evidence && item.evidence[f] !== undefined) document.getElementById(fToId(f)).value = item.evidence[f];
+      }
+      // update UI with loaded posterior
+      updateUIWithPosterior(item.posterior, item.evidence, `Loaded: ${item.name || item.time}`);
+    });
+  });
+  container.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', (ev)=>{
+      const index = parseInt(ev.target.getAttribute('data-del'));
+      let arr = loadHistory();
+      // remove reversed index
+      const removeIdx = arr.length - 1 - index;
+      arr.splice(removeIdx,1);
+      saveHistory(arr);
+      renderHistoryQuick();
+    });
+  });
+}
+function fToId(f) {
+  // mapping features names to input ids
+  const map = {
+    MedInc:'med-income', HouseAge:'house-age', AveRooms:'avg-rooms', AveBedrms:'avg-bedrooms',
+    Population:'population', AveOccup:'avg-occupancy', Latitude:'latitude', Longitude:'longitude'
+  };
+  return map[f];
+}
+document.getElementById('btn-save-history').addEventListener('click', ()=>{
+  const evidence = readInputs();
+  const method = document.getElementById('inference-method').value;
+  const name = document.getElementById('run-name').value || `Run ${nowISO()}`;
+  const post = (method==='exact') ? inferExact(evidence) : gibbsSample(evidence, parseInt(document.getElementById('gibbs-iterations').value)||2000);
+  const centers = priceCenters();
+  let expected = 0;
+  for (let i=0;i<post.length;i++) expected += post[i] * centers[i];
+  const hist = loadHistory();
+  hist.push({ time: nowISO(), name, method: method==='exact'?'Exact VE':'Gibbs', evidence, posterior: post, expected });
+  saveHistory(hist);
+  renderHistoryQuick();
+});
+document.getElementById('btn-clear-history').addEventListener('click', ()=>{
+  localStorage.removeItem('bhp_history');
+  renderHistoryQuick();
+});
+
+/* ---------------------------
+   Export CSV & PDF of last result / history
+   --------------------------- */
+document.getElementById('btn-export-csv').addEventListener('click', ()=>{
+  const hist = loadHistory();
+  if (hist.length === 0) return alert('No saved runs to export.');
+  const rows = hist.map(h => {
+    const row = {time:h.time, name:h.name, method:h.method, expected:h.expected};
+    for (let i=0;i<4;i++) row[`p_${i}`] = h.posterior ? round2(h.posterior[i]) : '';
+    for (const f of featuresList) row[f] = h.evidence[f] !== undefined ? h.evidence[f] : '';
+    return row;
+  });
+  const csv = Papa.unparse(rows);
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `bhp_history_${Date.now()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('btn-export-pdf').addEventListener('click', async ()=>{
+  const hist = loadHistory();
+  if (hist.length === 0) return alert('No saved runs to export.');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(12);
+  doc.text('Bayesian Housing Price Studio — Saved Runs', 10, 10);
+  let y = 18;
+  for (const h of hist.slice(-10)) { // last 10
+    doc.setFontSize(10);
+    doc.text(`${h.time} • ${h.name} • ${h.method}`, 10, y); y+=6;
+    doc.text(`Expected: $${Math.round(h.expected||0).toLocaleString()} • Posterior: ${h.posterior.map(p=>round2(p)).join(', ')}`, 10, y); y+=8;
+    if (y > 270) { doc.addPage(); y = 10; }
+  }
+  doc.save(`bhp_history_${Date.now()}.pdf`);
+});
+
+/* ---------------------------
+   CSV upload and learning bindings
+   --------------------------- */
+let uploadedRows = [];
+document.getElementById('csv-file').addEventListener('change', (ev)=>{
+  const f = ev.target.files[0];
+  if (!f) return;
+  Papa.parse(f, {
+    header:true, dynamicTyping:true, skipEmptyLines:true,
+    complete: (res) => {
+      uploadedRows = res.data;
+      alert(`Loaded ${uploadedRows.length} rows from CSV.`);
+    }
+  });
+});
+document.getElementById('btn-learn').addEventListener('click', ()=>{
+  if (uploadedRows.length === 0) return alert('Upload a CSV first.');
+  // set price bins from UI if provided
+  const pbStr = document.getElementById('price-bins').value.trim();
+  if (pbStr) {
+    const arr = pbStr.split(',').map(s=>parseFloat(s.trim())).filter(x=>!isNaN(x)).sort((a,b)=>a-b);
+    if (arr.length >= 1) priceBins = arr;
+  }
+  const learnedCPTs = learnCPTsFromData(uploadedRows);
+  // Update UI preview
+  const preview = document.getElementById('cpt-preview');
+  preview.innerHTML = '<div class="text-xs text-gray-700"><strong>Learned CPTs (excerpt)</strong></div>';
+  for (const f of featuresList) {
+    preview.innerHTML += `<div class="mt-2"><strong>${f}</strong><pre style="white-space:pre-wrap;font-size:11px;">${JSON.stringify(learnedCPTs[f], null, 2)}</pre></div>`;
+  }
+  preview.innerHTML += `<div class="mt-2 text-xs text-gray-600">Learned P(Price): ${learnedCPTs.Price.map(p=>round2(p)).join(', ')}</div>`;
+});
+
+document.getElementById('btn-eval').addEventListener('click', ()=>{
+  if (uploadedRows.length === 0) return alert('Upload CSV first.');
+  // set price bins too
+  const pbStr = document.getElementById('price-bins').value.trim();
+  if (pbStr) {
+    const arr = pbStr.split(',').map(s=>parseFloat(s.trim())).filter(x=>!isNaN(x)).sort((a,b)=>a-b);
+    if (arr.length >= 1) priceBins = arr;
+  }
+  const res = evaluateModel(uploadedRows);
+  const out = document.getElementById('eval-output');
+  out.innerHTML = `<div><strong>Train size:</strong> ${res.trainSize} • <strong>Test size:</strong> ${res.testSize}</div>
+                   <div><strong>Naive-Bayes accuracy:</strong> ${(res.accNB*100).toFixed(2)}%</div>
+                   <div><strong>Linear Regression baseline accuracy:</strong> ${res.betaAvailable ? (res.accLR*100).toFixed(2)+'%' : 'N/A'}</div>`;
+});
+
+/* ---------------------------
+   Scenarios: builder, bank, policy
+   --------------------------- */
+document.getElementById('btn-builder-sim').addEventListener('click', ()=>{
+  const cost = parseFloat(document.getElementById('builder-cost').value) || 0;
+  const mult = parseFloat(document.getElementById('builder-mult').value) || 1.0;
+  const evidence = readInputs();
+  const post = inferExact(evidence);
+  const centers = priceCenters();
+  const expectedSale = post.reduce((acc,p,i)=>acc + p * centers[i] * mult, 0);
+  const expectedProfit = expectedSale - cost;
+  document.getElementById('builder-output').innerHTML = `Expected sale (avg): $${Math.round(expectedSale).toLocaleString()} • Expected profit: $${Math.round(expectedProfit).toLocaleString()}`;
+});
+document.getElementById('btn-bank-sim').addEventListener('click', ()=>{
+  const thresh = parseFloat(document.getElementById('bank-threshold').value) || 0;
+  const evidence = readInputs();
+  const post = inferExact(evidence);
+  const centers = priceCenters();
+  // approximate prob price < thresh by summing probabilities of bins with center < thresh
+  let probBelow = 0;
+  for (let i=0;i<post.length;i++){
+    if (centers[i] < thresh) probBelow += post[i];
+    else {
+      // if threshold in middle of bin, do proportional; but for simplicity we assume bin centers represent entire bin
+    }
+  }
+  document.getElementById('bank-output').innerHTML = `Probability price < $${thresh.toLocaleString()} ≈ ${(probBelow*100).toFixed(2)}%`;
+});
+document.getElementById('btn-policy-sim').addEventListener('click', ()=>{
+  const delta = parseFloat(document.getElementById('policy-medinc-delta').value) || 0;
+  const evidence = readInputs();
+  const modified = {...evidence, MedInc: (evidence.MedInc === null ? delta : evidence.MedInc + delta)};
+  const postOrig = inferExact(evidence);
+  const postMod = inferExact(modified);
+  const change = postMod.map((p,i)=>((p-postOrig[i])*100).toFixed(2));
+  document.getElementById('policy-output').innerHTML = `Posterior change (%) by bin: [${change.join(', ')}]`;
+});
+
+/* ---------------------------
+   Advanced: Gibbs & DBN hooks
+   --------------------------- */
+document.getElementById('btn-gibbs-run').addEventListener('click', ()=>{
+  const iters = parseInt(document.getElementById('gibbs-iter-adv').value) || 5000;
+  const evidence = readInputs();
+  const samplePost = gibbsSample(evidence, iters);
+  document.getElementById('gibbs-output').innerHTML = `Gibbs sample posterior (empirical): ${samplePost.map(p=>round2(p)).join(', ')}`;
+  updateUIWithPosterior(samplePost, evidence, `Gibbs (${iters} iters)`);
+});
+document.getElementById('btn-dbn-sim').addEventListener('click', ()=>{
+  if (uploadedRows.length === 0) return alert('Upload CSV with time column to learn transitions.');
+  const T = learnDBNTransitions(uploadedRows);
+  if (!T) return document.getElementById('dbn-output').innerHTML = 'Could not learn transitions (insufficient or missing time data).';
+  const evidence = readInputs();
+  const initPost = inferExact(evidence);
+  const steps = parseInt(document.getElementById('dbn-steps').value) || 12;
+  const path = simulateDBN(initPost, steps);
+  if (!path) return document.getElementById('dbn-output').innerHTML = 'DBN simulation failed.';
+  // summarize: show posterior at last step
+  const last = path[path.length-1];
+  document.getElementById('dbn-output').innerHTML = `Simulated ${steps} steps. Final posterior: ${last.map(p=>round2(p)).join(', ')}`;
+  updateUIWithPosterior(last, evidence, `DBN sim (${steps} steps)`);
+});
+
+/* ---------------------------
+   Dark mode toggle
+   --------------------------- */
+document.getElementById('dark-toggle').addEventListener('change', (e)=>{
+  if (e.target.checked) {
+    document.documentElement.classList.add('dark-mode');
+    document.getElementById('dark-label').textContent = 'Dark ✓';
+  } else {
+    document.documentElement.classList.remove('dark-mode');
+    document.getElementById('dark-label').textContent = 'Dark';
+  }
+});
+
+/* ---------------------------
+   Initialize: render history and reasonable defaults
+   --------------------------- */
+(function init() {
+  // Load thresholds and CPTs are already set
+  renderHistoryQuick();
+  // Pre-fill some defaults for convenience
+  document.getElementById('med-income').value = 3.5;
+  document.getElementById('house-age').value = 25;
+  document.getElementById('avg-rooms').value = 5.5;
+  document.getElementById('avg-bedrooms').value = 1.1;
+  document.getElementById('population').value = 1200;
+  document.getElementById('avg-occupancy').value = 2.5;
+  document.getElementById('latitude').value = 34.05;
+  document.getElementById('longitude').value = -118.25;
+  document.getElementById('price-bins').value = priceBins.join(',');
+  initCharts();
+  // update initial posterior from prior
+  const prior = cpts.Price.slice();
+  updateUIWithPosterior(prior, {MedInc:null,HouseAge:null,AveRooms:null,AveBedrms:null,Population:null,AveOccup:null,Latitude:null,Longitude:null}, 'Prior');
+})();
+
+/* ---------------------------
+   Helper: keep charts responsive when window resizes
+   --------------------------- */
+window.addEventListener('resize', ()=>{ if (barChart) barChart.resize(); if (pieChart) pieChart.resize(); });
+
+/* ---------------------------
+   Map marker update when lat/lon inputs blur
+   --------------------------- */
+['latitude','longitude'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', ()=>{
+    const lat = parseFloat(document.getElementById('latitude').value);
+    const lon = parseFloat(document.getElementById('longitude').value);
+    if (!isNaN(lat) && !isNaN(lon)) {
+      map.setView([lat,lon], 10);
+      marker.setLatLng([lat,lon]);
+    }
+  });
+});
+
+/* ---------------------------
+   Wire: preload example (optional)
+   --------------------------- */
+</script>
+</body>
+</html>
