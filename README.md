@@ -112,17 +112,6 @@ Expected Price = Σ (Posterior Probability × Representative Value of Category)
 
 ---
 
-## 📂 Project Structure
-├── index.html # Frontend user interface
-├── style.css # Styling for input and output
-├── app.js # Input handling and API calls
-├── model.py # Bayesian Network implementation
-├── cpt.json # Conditional Probability Tables
-└── README.md # Project documentation
-
-
----
-
 ## 📸 Visualization
 - Bayesian Network Diagram (Price node connected to features)  
 - Probability Distribution Bar Chart for categories  
